@@ -6,7 +6,7 @@ import java.net.URL;
 
 public class StockDataFetcher {
 
-    private static final String API_KEY = "D5C3DLSUH4MK2T6T"; 
+    private static final String API_KEY = System.getenv("ALPHA_VANTAGE_KEY"); 
     private static final String BASE_URL = "https://www.alphavantage.co/query";
 
     /**

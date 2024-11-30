@@ -10,13 +10,18 @@ import javafx.stage.Stage;
 import org.json.JSONObject;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import javafx.application.Platform;
 
 public class StockPortfolioTracker extends Application {
 
     private LineChart<Number, Number> stockTrendChart;
     private TableView<String[]> portfolioTable;
     private DatabaseManager dbManager;
-
+    private ScheduledExecutorService scheduler;
+    
     @Override
     public void start(Stage primaryStage) {
         primaryStage.setTitle("Stock Market Portfolio Tracker");
@@ -31,10 +36,13 @@ public class StockPortfolioTracker extends Application {
         TableColumn<String[], String> sharesCol = new TableColumn<>("Shares");
         sharesCol.setCellValueFactory(data -> new javafx.beans.property.SimpleStringProperty(data.getValue()[1]));
 
-        TableColumn<String[], String> priceCol = new TableColumn<>("Price");
+        TableColumn<String[], String> priceCol = new TableColumn<>("Buy Price");
         priceCol.setCellValueFactory(data -> new javafx.beans.property.SimpleStringProperty(data.getValue()[2]));
         
-        // Total Value Column
+        TableColumn<String[], String> curPriceCol = new TableColumn<>("Current Price");
+        curPriceCol.setCellValueFactory(data -> new javafx.beans.property.SimpleStringProperty(data.getValue()[3]));
+
+     // Corrected: Total Value Calculation (using totValCol)
         TableColumn<String[], String> totValCol = new TableColumn<>("Total Value");
         totValCol.setCellValueFactory(data -> {
             double shares = Double.parseDouble(data.getValue()[1]);
@@ -42,8 +50,14 @@ public class StockPortfolioTracker extends Application {
             return new javafx.beans.property.SimpleStringProperty(String.format("%.2f", shares * price));
         });
 
-        portfolioTable.getColumns().addAll(stockNameCol, sharesCol, priceCol, totValCol);
+        portfolioTable.getColumns().addAll(stockNameCol, sharesCol, priceCol, curPriceCol, totValCol);
         portfolioTable.setPrefWidth(600);
+        portfolioTable.getSelectionModel().selectedItemProperty().addListener((observable, oldValue, newValue) -> {
+            if (newValue != null) {
+                String selectedStockName = newValue[0]; // Stock name is in the first column
+                updateStockTrendChartWithLiveData(selectedStockName);
+            }
+        });
 
         // Stock Trend Chart
         NumberAxis xAxis = new NumberAxis();
@@ -80,11 +94,10 @@ public class StockPortfolioTracker extends Application {
             String priceText = priceInput.getText();
             if (!stockName.isEmpty() && !sharesText.isEmpty() && !priceText.isEmpty()) {
                 try {
-                    int shares = Integer.parseInt(sharesText);
+                	int shares = Integer.parseInt(sharesText);
                     double price = Double.parseDouble(priceText);
-                    // Add stock to database and table
-                    dbManager.addStock(stockName, shares, price);
-                    portfolioTable.getItems().add(new String[]{stockName, sharesText, priceText});
+                    addStockToPortfolio(stockName,shares, price);
+                    
                     stockNameInput.clear();
                     sharesInput.clear();
                     priceInput.clear();
@@ -94,6 +107,7 @@ public class StockPortfolioTracker extends Application {
             } else {
                 showError("All fields are required.");
             }
+           
         });
 
         VBox inputPane = new VBox(10, stockNameInput, sharesInput, priceInput, addStockButton);
@@ -107,6 +121,79 @@ public class StockPortfolioTracker extends Application {
 
         // Populate Portfolio Table from Database
         loadPortfolioFromDatabase();
+        
+     // Start the scheduler to update stock prices
+        startPriceUpdateScheduler();
+    }
+    private void startPriceUpdateScheduler() {
+        scheduler = Executors.newSingleThreadScheduledExecutor();
+        scheduler.scheduleAtFixedRate(() -> {
+            Platform.runLater(() -> updateCurrentPrices());
+        }, 0, 30, TimeUnit.SECONDS); // Update every 30 seconds
+    }
+
+    @Override
+    public void stop() throws Exception {
+        if (scheduler != null && !scheduler.isShutdown()) {
+            scheduler.shutdown();
+        }
+        super.stop();
+    }
+    private void updateCurrentPrices() {
+        for (String[] stock : portfolioTable.getItems()) {
+            String stockName = stock[0];
+            try {
+                // Fetch live stock price using StockDataFetcher
+                JSONObject response = StockDataFetcher.fetchStockData(stockName);
+                if (response != null) {
+                    JSONObject timeSeries = response.getJSONObject("Time Series (Daily)");
+                    String latestDate = timeSeries.keys().next();
+                    double currentPrice = timeSeries.getJSONObject(latestDate).getDouble("4. close");
+
+                    // Update "Current Price" in stock data array
+                    stock[3] = String.format("%.2f", currentPrice);
+
+                    // Update "Total Value" based on live price
+                    double shares = Double.parseDouble(stock[1]);
+                    stock[4] = String.format("%.2f", shares * currentPrice);
+                } else {
+                    System.out.println("Unable to fetch stock data for " + stockName);
+                }
+            } catch (Exception e) {
+                System.err.println("Error updating price for " + stockName + ": " + e.getMessage());
+            }
+        }
+
+        // Refresh table to reflect updates
+        portfolioTable.refresh();
+    }
+    
+    private double fetchSpecificPrice(String stockName) {
+    	double curPrice = 0.0;
+            try {
+                // Fetch live stock price using StockDataFetcher
+                JSONObject response = StockDataFetcher.fetchStockData(stockName);
+                if (response != null) {
+                    JSONObject timeSeries = response.getJSONObject("Time Series (Daily)");
+                    String latestDate = timeSeries.keys().next();
+                    curPrice = timeSeries.getJSONObject(latestDate).getDouble("4. close");
+
+                } else {
+                    System.out.println("Unable to fetch stock data for " + stockName);
+                }
+            } catch (Exception e) {
+                System.err.println("Error updating price for " + stockName + ": " + e.getMessage());
+            }
+   
+        // Refresh table to reflect updates
+        portfolioTable.refresh();
+        
+        return curPrice;
+    }
+
+    private void addStockToPortfolio(String stockName, int shares, double price) {
+        portfolioTable.getItems().add(new String[]{stockName, String.valueOf(shares), String.format("%.2f", price)});
+        dbManager.addStock(stockName, shares, price);  // Persist to database
     }
 
     private void loadPortfolioFromDatabase() {
@@ -116,7 +203,8 @@ public class StockPortfolioTracker extends Application {
                 String stockName = rs.getString("stock_name");
                 int shares = rs.getInt("shares");
                 double price = rs.getDouble("price");
-                portfolioTable.getItems().add(new String[]{stockName, String.valueOf(shares), String.format("%.2f", price)});
+                double curPrice = fetchSpecificPrice(stockName);
+                portfolioTable.getItems().add(new String[]{stockName, String.valueOf(shares), String.format("%.2f", price), String.format("%.2f", curPrice)});
             }
         } catch (SQLException e) {
             e.printStackTrace();
