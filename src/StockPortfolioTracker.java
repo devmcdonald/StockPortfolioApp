@@ -8,17 +8,23 @@ import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.stage.Stage;
 import org.json.JSONObject;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 
 public class StockPortfolioTracker extends Application {
 
     private LineChart<Number, Number> stockTrendChart;
+    private TableView<String[]> portfolioTable;
+    private DatabaseManager dbManager;
 
     @Override
     public void start(Stage primaryStage) {
         primaryStage.setTitle("Stock Market Portfolio Tracker");
 
+        dbManager = new DatabaseManager();
+
         // Portfolio Table
-        TableView<String[]> portfolioTable = new TableView<>();
+        portfolioTable = new TableView<>();
         TableColumn<String[], String> stockNameCol = new TableColumn<>("Stock");
         stockNameCol.setCellValueFactory(data -> new javafx.beans.property.SimpleStringProperty(data.getValue()[0]));
 
@@ -28,7 +34,7 @@ public class StockPortfolioTracker extends Application {
         TableColumn<String[], String> priceCol = new TableColumn<>("Price");
         priceCol.setCellValueFactory(data -> new javafx.beans.property.SimpleStringProperty(data.getValue()[2]));
         
-        // Corrected: Total Value Calculation (using totValCol)
+        // Total Value Column
         TableColumn<String[], String> totValCol = new TableColumn<>("Total Value");
         totValCol.setCellValueFactory(data -> {
             double shares = Double.parseDouble(data.getValue()[1]);
@@ -37,7 +43,7 @@ public class StockPortfolioTracker extends Application {
         });
 
         portfolioTable.getColumns().addAll(stockNameCol, sharesCol, priceCol, totValCol);
-        portfolioTable.setPrefWidth(600);  // Adjust table width if needed
+        portfolioTable.setPrefWidth(600);
 
         // Stock Trend Chart
         NumberAxis xAxis = new NumberAxis();
@@ -46,14 +52,6 @@ public class StockPortfolioTracker extends Application {
         yAxis.setLabel("Price");
         stockTrendChart = new LineChart<>(xAxis, yAxis);
         stockTrendChart.setTitle("Stock Performance");
-
-        // Update Chart on Stock Selection
-        portfolioTable.getSelectionModel().selectedItemProperty().addListener((obs, oldSelection, newSelection) -> {
-            if (newSelection != null) {
-                String stockName = newSelection[0];
-                updateStockTrendChartWithLiveData(stockName); // Fetch live data
-            }
-        });
 
         // Layouts
         VBox leftPane = new VBox(10, new Label("Your Portfolio"), portfolioTable);
@@ -67,16 +65,67 @@ public class StockPortfolioTracker extends Application {
         HBox mainLayout = new HBox(10, leftPane, rightPane);
         mainLayout.setPadding(new Insets(10));
 
+        // Add stock input fields and button
+        TextField stockNameInput = new TextField();
+        stockNameInput.setPromptText("Stock Symbol");
+        TextField sharesInput = new TextField();
+        sharesInput.setPromptText("Shares");
+        TextField priceInput = new TextField();
+        priceInput.setPromptText("Price");
+
+        Button addStockButton = new Button("Add Stock");
+        addStockButton.setOnAction(e -> {
+            String stockName = stockNameInput.getText().toUpperCase();
+            String sharesText = sharesInput.getText();
+            String priceText = priceInput.getText();
+            if (!stockName.isEmpty() && !sharesText.isEmpty() && !priceText.isEmpty()) {
+                try {
+                    int shares = Integer.parseInt(sharesText);
+                    double price = Double.parseDouble(priceText);
+                    // Add stock to database and table
+                    dbManager.addStock(stockName, shares, price);
+                    portfolioTable.getItems().add(new String[]{stockName, sharesText, priceText});
+                    stockNameInput.clear();
+                    sharesInput.clear();
+                    priceInput.clear();
+                } catch (NumberFormatException ex) {
+                    showError("Please enter valid numbers for shares and price.");
+                }
+            } else {
+                showError("All fields are required.");
+            }
+        });
+
+        VBox inputPane = new VBox(10, stockNameInput, sharesInput, priceInput, addStockButton);
+        inputPane.setPadding(new Insets(10));
+        leftPane.getChildren().add(inputPane);
+
         // Main Scene
         Scene scene = new Scene(mainLayout, 800, 600);
         primaryStage.setScene(scene);
         primaryStage.show();
 
-        // Populate Portfolio Table (Mock Data)
-        portfolioTable.getItems().addAll(
-            new String[]{"AAPL", "10", "150.00"},
-            new String[]{"GOOGL", "5", "2800.00"}
-        );
+        // Populate Portfolio Table from Database
+        loadPortfolioFromDatabase();
+    }
+
+    private void loadPortfolioFromDatabase() {
+        try {
+            ResultSet rs = dbManager.getPortfolio();
+            while (rs != null && rs.next()) {
+                String stockName = rs.getString("stock_name");
+                int shares = rs.getInt("shares");
+                double price = rs.getDouble("price");
+                portfolioTable.getItems().add(new String[]{stockName, String.valueOf(shares), String.format("%.2f", price)});
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void showError(String message) {
+        Alert alert = new Alert(Alert.AlertType.ERROR, message, ButtonType.OK);
+        alert.showAndWait();
     }
 
     /**

@@ -55,14 +55,13 @@ public class DatabaseManager {
     }
 
     // Add stock to portfolio (including shares and price)
-    public void addStock(String symbol, String name, int shares, double price) {
-        String sql = "INSERT INTO portfolio (symbol, name, shares, price) VALUES (?, ?, ?, ?)";
+    public void addStock(String symbol, int shares, double price) {
+        String sql = "INSERT INTO portfolio (stock_name, shares, price) VALUES (?, ?, ?)";
         try (Connection conn = connect();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
         	stmt.setString(1, symbol);
-            stmt.setString(2, name);
-            stmt.setInt(3, shares);  // Add shares to the database
-            stmt.setDouble(4, price);  // Add price to the database
+            stmt.setInt(2, shares);  
+            stmt.setDouble(3, price);  
             stmt.executeUpdate();
         } catch (SQLException e) {
             e.printStackTrace();
