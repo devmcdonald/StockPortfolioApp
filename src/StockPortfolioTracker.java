@@ -129,7 +129,7 @@ public class StockPortfolioTracker extends Application {
         scheduler = Executors.newSingleThreadScheduledExecutor();
         scheduler.scheduleAtFixedRate(() -> {
             Platform.runLater(() -> updateCurrentPrices());
-        }, 0, 30, TimeUnit.SECONDS); // Update every 30 seconds
+        }, 0, 1, TimeUnit.DAYS); // Update every day
     }
 
     @Override
@@ -225,6 +225,8 @@ public class StockPortfolioTracker extends Application {
         try {
             // Fetch stock data using the StockDataFetcher class
             JSONObject response = StockDataFetcher.fetchStockData(stockName);
+            System.out.println("API Response for " + stockName + ": " + response.toString(2));
+
             if (response != null) {
                 JSONObject timeSeries = response.getJSONObject("Time Series (Daily)");
                 XYChart.Series<Number, Number> series = new XYChart.Series<>();
@@ -240,6 +242,7 @@ public class StockPortfolioTracker extends Application {
                 stockTrendChart.getData().add(series);
             } else {
                 System.out.println("Error: Unable to fetch stock data.");
+
             }
         } catch (Exception e) {
             System.err.println("Error updating stock trend chart: " + e.getMessage());
