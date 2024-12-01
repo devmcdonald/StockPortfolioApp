@@ -7,6 +7,7 @@ import javafx.scene.chart.XYChart;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.stage.Stage;
+import javafx.geometry.*;
 import org.json.JSONObject;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -14,6 +15,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import javafx.application.Platform;
+import java.util.*;
 
 public class StockPortfolioTracker extends Application {
 
@@ -46,7 +48,7 @@ public class StockPortfolioTracker extends Application {
         TableColumn<String[], String> totValCol = new TableColumn<>("Total Value");
         totValCol.setCellValueFactory(data -> {
             double shares = Double.parseDouble(data.getValue()[1]);
-            double price = Double.parseDouble(data.getValue()[2]);
+            double price = Double.parseDouble(data.getValue()[3]);
             return new javafx.beans.property.SimpleStringProperty(String.format("%.2f", shares * price));
         });
 
@@ -56,6 +58,9 @@ public class StockPortfolioTracker extends Application {
             if (newValue != null) {
                 String selectedStockName = newValue[0]; // Stock name is in the first column
                 updateStockTrendChartWithLiveData(selectedStockName);
+            }
+            else {
+                updateStockTrendChartWithPortfolioValue();
             }
         });
 
@@ -67,17 +72,23 @@ public class StockPortfolioTracker extends Application {
         stockTrendChart = new LineChart<>(xAxis, yAxis);
         stockTrendChart.setTitle("Stock Performance");
 
+        Button showPortfolioButton = new Button("Show Overall Portfolio");
+        showPortfolioButton.setOnAction(event -> updateStockTrendChartWithPortfolioValue());
+        
         // Layouts
         VBox leftPane = new VBox(10, new Label("Your Portfolio"), portfolioTable);
         leftPane.setPadding(new Insets(10));
         leftPane.setPrefWidth(400);
 
-        VBox rightPane = new VBox(10, new Label("Stock Trends"), stockTrendChart);
+        VBox rightPane = new VBox(10, new Label("Stock Trends"), stockTrendChart, showPortfolioButton);
         rightPane.setPadding(new Insets(10));
         rightPane.setPrefWidth(400);
+        VBox.setMargin(showPortfolioButton, new Insets(10, 0, 0, 0)); // Add some space from the chart
+        rightPane.setAlignment(Pos.CENTER);
 
         HBox mainLayout = new HBox(10, leftPane, rightPane);
         mainLayout.setPadding(new Insets(10));
+        
 
         // Add stock input fields and button
         TextField stockNameInput = new TextField();
@@ -109,9 +120,10 @@ public class StockPortfolioTracker extends Application {
             }
            
         });
-
+        
         VBox inputPane = new VBox(10, stockNameInput, sharesInput, priceInput, addStockButton);
         inputPane.setPadding(new Insets(10));
+        inputPane.setAlignment(Pos.CENTER);
         leftPane.getChildren().add(inputPane);
 
         // Main Scene
@@ -139,6 +151,44 @@ public class StockPortfolioTracker extends Application {
         }
         super.stop();
     }
+    private void updateStockTrendChartWithPortfolioValue() {
+        stockTrendChart.getData().clear(); // Clear old data
+
+        XYChart.Series<Number, Number> series = new XYChart.Series<>();
+        series.setName("Total Portfolio Value");
+
+        try {
+            Map<String, Double> portfolioData = new TreeMap<>(Collections.reverseOrder()); // Keep dates in descending order
+
+            for (String[] stock : portfolioTable.getItems()) {
+                String stockName = stock[0];
+                double shares = Double.parseDouble(stock[1]);
+
+                JSONObject stockData = StockDataFetcher.fetchStockData(stockName);
+
+                if (stockData != null) {
+                    JSONObject timeSeries = stockData.getJSONObject("Time Series (Daily)");
+                    for (String date : timeSeries.keySet()) {
+                        double closePrice = timeSeries.getJSONObject(date).getDouble("4. close");
+                        portfolioData.put(date, portfolioData.getOrDefault(date, 0.0) + shares * closePrice);
+                    }
+                }
+            }
+
+            int day = 1;
+            for (String date : portfolioData.keySet()) {
+                if (day > 5) break; // Limit to last 5 days
+                series.getData().add(new XYChart.Data<>(day++, portfolioData.get(date)));
+            }
+
+            stockTrendChart.getData().add(series);
+            adjustYAxisRangeAndTicks(series);
+        } catch (Exception e) {
+            System.err.println("Error calculating total portfolio value: " + e.getMessage());
+        }
+    }
+
+
     private void updateCurrentPrices() {
         for (String[] stock : portfolioTable.getItems()) {
             String stockName = stock[0];
@@ -246,6 +296,7 @@ public class StockPortfolioTracker extends Application {
                 }
 
                 stockTrendChart.getData().add(series);
+                adjustYAxisRangeAndTicks(series);
             } else {
                 System.out.println("Error: Unable to fetch stock data.");
 
@@ -254,6 +305,30 @@ public class StockPortfolioTracker extends Application {
             System.err.println("Error updating stock trend chart: " + e.getMessage());
         }
     }
+
+    private void adjustYAxisRangeAndTicks(XYChart.Series<Number, Number> series) {
+        double minY = Double.MAX_VALUE;
+        double maxY = Double.MIN_VALUE;
+
+        for (XYChart.Data<Number, Number> data : series.getData()) {
+            double value = data.getYValue().doubleValue();
+            if (value < minY) minY = value;
+            if (value > maxY) maxY = value;
+        }
+
+        double padding = (maxY - minY) * 0.1; // Add 10% padding
+        double lowerBound = minY - padding;
+        double upperBound = maxY + padding;
+
+        double tickUnit = Math.max((upperBound - lowerBound) / 10, 0.02); // Ensure minimum tick spacing of 0.02
+
+        NumberAxis yAxis = (NumberAxis) stockTrendChart.getYAxis();
+        yAxis.setAutoRanging(false); // Disable auto-range
+        yAxis.setLowerBound(lowerBound);
+        yAxis.setUpperBound(upperBound);
+        yAxis.setTickUnit(tickUnit);
+    }
+
 
     public static void main(String[] args) {
         launch(args);
