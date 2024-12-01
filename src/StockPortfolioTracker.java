@@ -192,7 +192,13 @@ public class StockPortfolioTracker extends Application {
     }
 
     private void addStockToPortfolio(String stockName, int shares, double price) {
-        portfolioTable.getItems().add(new String[]{stockName, String.valueOf(shares), String.format("%.2f", price)});
+        portfolioTable.getItems().add(new String[]{
+            stockName, 
+            String.valueOf(shares), 
+            String.format("%.2f", price), 
+            "0.00", // Placeholder for Current Price
+            String.format("%.2f", shares * price) // Placeholder for Total Value
+        });
         dbManager.addStock(stockName, shares, price);  // Persist to database
     }
 
@@ -204,7 +210,8 @@ public class StockPortfolioTracker extends Application {
                 int shares = rs.getInt("shares");
                 double price = rs.getDouble("price");
                 double curPrice = fetchSpecificPrice(stockName);
-                portfolioTable.getItems().add(new String[]{stockName, String.valueOf(shares), String.format("%.2f", price), String.format("%.2f", curPrice)});
+                double totVal = curPrice * shares;
+                portfolioTable.getItems().add(new String[]{stockName, String.valueOf(shares), String.format("%.2f", price), String.format("%.2f", curPrice), String.format("%.2f", totVal)});
             }
         } catch (SQLException e) {
             e.printStackTrace();
@@ -225,7 +232,6 @@ public class StockPortfolioTracker extends Application {
         try {
             // Fetch stock data using the StockDataFetcher class
             JSONObject response = StockDataFetcher.fetchStockData(stockName);
-            System.out.println("API Response for " + stockName + ": " + response.toString(2));
 
             if (response != null) {
                 JSONObject timeSeries = response.getJSONObject("Time Series (Daily)");
