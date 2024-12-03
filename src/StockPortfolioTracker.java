@@ -16,10 +16,11 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import javafx.application.Platform;
 import java.util.*;
+import javafx.scene.chart.CategoryAxis;
 
 public class StockPortfolioTracker extends Application {
 
-    private LineChart<Number, Number> stockTrendChart;
+    private LineChart<String, Number> stockTrendChart;
     private TableView<String[]> portfolioTable;
     private DatabaseManager dbManager;
     private ScheduledExecutorService scheduler;
@@ -65,7 +66,7 @@ public class StockPortfolioTracker extends Application {
         });
 
         // Stock Trend Chart
-        NumberAxis xAxis = new NumberAxis();
+        CategoryAxis xAxis = new CategoryAxis();
         xAxis.setLabel("Days");
         NumberAxis yAxis = new NumberAxis();
         yAxis.setLabel("Price");
@@ -154,7 +155,7 @@ public class StockPortfolioTracker extends Application {
     private void updateStockTrendChartWithPortfolioValue() {
         stockTrendChart.getData().clear(); // Clear old data
 
-        XYChart.Series<Number, Number> series = new XYChart.Series<>();
+        XYChart.Series<String, Number> series = new XYChart.Series<>();
         series.setName("Total Portfolio Value");
 
         try {
@@ -175,10 +176,8 @@ public class StockPortfolioTracker extends Application {
                 }
             }
 
-            int day = 1;
             for (String date : portfolioData.keySet()) {
-                if (day > 5) break; // Limit to last 5 days
-                series.getData().add(new XYChart.Data<>(day++, portfolioData.get(date)));
+                series.getData().add(new XYChart.Data<>(date, portfolioData.get(date)));
             }
 
             stockTrendChart.getData().add(series);
@@ -187,6 +186,7 @@ public class StockPortfolioTracker extends Application {
             System.err.println("Error calculating total portfolio value: " + e.getMessage());
         }
     }
+
 
 
     private void updateCurrentPrices() {
@@ -285,32 +285,41 @@ public class StockPortfolioTracker extends Application {
 
             if (response != null) {
                 JSONObject timeSeries = response.getJSONObject("Time Series (Daily)");
-                XYChart.Series<Number, Number> series = new XYChart.Series<>();
+                XYChart.Series<String, Number> series = new XYChart.Series<>();
                 series.setName(stockName);
 
-                int day = 1;
-                for (String date : timeSeries.keySet()) {
+                // Create a sorted list of dates (descending order to get the most recent first)
+                List<String> dates = new ArrayList<>(timeSeries.keySet());
+                Collections.sort(dates, Collections.reverseOrder()); // Sort by descending dates
+
+                // Extract the most recent 5 dates and reverse them for chronological order
+                List<String> recentDates = dates.subList(0, Math.min(dates.size(), 5));
+                Collections.reverse(recentDates); // Reverse to chronological order
+
+                // Add data to the series in chronological order
+                for (String date : recentDates) {
                     double closePrice = timeSeries.getJSONObject(date).getDouble("4. close");
-                    series.getData().add(new XYChart.Data<>(day++, closePrice));
-                    if (day > 5) break; // Limit to last 5 days
+                    series.getData().add(new XYChart.Data<>(date, closePrice));
                 }
 
                 stockTrendChart.getData().add(series);
                 adjustYAxisRangeAndTicks(series);
             } else {
                 System.out.println("Error: Unable to fetch stock data.");
-
             }
         } catch (Exception e) {
             System.err.println("Error updating stock trend chart: " + e.getMessage());
         }
     }
 
-    private void adjustYAxisRangeAndTicks(XYChart.Series<Number, Number> series) {
+
+
+
+    private void adjustYAxisRangeAndTicks(XYChart.Series<String, Number> series) {
         double minY = Double.MAX_VALUE;
         double maxY = Double.MIN_VALUE;
 
-        for (XYChart.Data<Number, Number> data : series.getData()) {
+        for (XYChart.Data<String, Number> data : series.getData()) {
             double value = data.getYValue().doubleValue();
             if (value < minY) minY = value;
             if (value > maxY) maxY = value;
