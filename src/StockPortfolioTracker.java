@@ -97,7 +97,7 @@ public class StockPortfolioTracker extends Application {
         TextField sharesInput = new TextField();
         sharesInput.setPromptText("Shares");
         TextField priceInput = new TextField();
-        priceInput.setPromptText("Price");
+        priceInput.setPromptText("Buy Price");
 
         Button addStockButton = new Button("Add Stock");
         addStockButton.setOnAction(e -> {
@@ -159,7 +159,7 @@ public class StockPortfolioTracker extends Application {
         series.setName("Total Portfolio Value");
 
         try {
-            Map<String, Double> portfolioData = new TreeMap<>(Collections.reverseOrder()); // Keep dates in descending order
+            Map<String, Double> portfolioData = new TreeMap<>(); // Natural ordering (ascending by date)
 
             for (String[] stock : portfolioTable.getItems()) {
                 String stockName = stock[0];
@@ -186,6 +186,7 @@ public class StockPortfolioTracker extends Application {
             System.err.println("Error calculating total portfolio value: " + e.getMessage());
         }
     }
+
 
 
 
