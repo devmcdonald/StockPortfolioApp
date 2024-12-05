@@ -139,12 +139,48 @@ public class StockPortfolioTracker extends Application {
         startPriceUpdateScheduler();
     }
     private void startPriceUpdateScheduler() {
-        scheduler = Executors.newSingleThreadScheduledExecutor();
-        scheduler.scheduleAtFixedRate(() -> {
-            Platform.runLater(() -> updateCurrentPrices());
-        }, 0, 1, TimeUnit.DAYS); // Update every day
+        // Create a thread pool with a fixed number of threads
+        int numThreads = portfolioTable.getItems().size(); // One thread per stock
+        scheduler = Executors.newScheduledThreadPool(numThreads);
+
+        for (String[] stock : portfolioTable.getItems()) {
+            String stockName = stock[0];
+            scheduler.scheduleAtFixedRate(() -> {
+                // Update the stock price in a separate thread
+                updateCurrentPriceForStock(stockName);
+            }, 0, 1, TimeUnit.DAYS); // Update every day
+        }
     }
 
+    private void updateCurrentPriceForStock(String stockName) {
+        try {
+            // Fetch live stock price using StockDataFetcher
+            JSONObject response = StockDataFetcher.fetchStockData(stockName);
+            if (response != null) {
+                JSONObject timeSeries = response.getJSONObject("Time Series (Daily)");
+                String latestDate = timeSeries.keys().next();
+                double currentPrice = timeSeries.getJSONObject(latestDate).getDouble("4. close");
+
+                // Find the corresponding stock in the portfolioTable
+                Platform.runLater(() -> {
+                    for (String[] stock : portfolioTable.getItems()) {
+                        if (stock[0].equals(stockName)) {
+                            stock[3] = String.format("%.2f", currentPrice); // Update "Current Price"
+                            double shares = Double.parseDouble(stock[1]);
+                            stock[4] = String.format("%.2f", shares * currentPrice); // Update "Total Value"
+                            portfolioTable.refresh(); // Refresh the table to reflect updates
+                            break;
+                        }
+                    }
+                });
+            } else {
+                System.out.println("Unable to fetch stock data for " + stockName);
+            }
+        } catch (Exception e) {
+            System.err.println("Error updating price for " + stockName + ": " + e.getMessage());
+        }
+    }
+    
     @Override
     public void stop() throws Exception {
         if (scheduler != null && !scheduler.isShutdown()) {
@@ -152,6 +188,7 @@ public class StockPortfolioTracker extends Application {
         }
         super.stop();
     }
+    
     private void updateStockTrendChartWithPortfolioValue() {
         stockTrendChart.getData().clear(); // Clear old data
 
@@ -185,38 +222,6 @@ public class StockPortfolioTracker extends Application {
         } catch (Exception e) {
             System.err.println("Error calculating total portfolio value: " + e.getMessage());
         }
-    }
-
-
-
-
-    private void updateCurrentPrices() {
-        for (String[] stock : portfolioTable.getItems()) {
-            String stockName = stock[0];
-            try {
-                // Fetch live stock price using StockDataFetcher
-                JSONObject response = StockDataFetcher.fetchStockData(stockName);
-                if (response != null) {
-                    JSONObject timeSeries = response.getJSONObject("Time Series (Daily)");
-                    String latestDate = timeSeries.keys().next();
-                    double currentPrice = timeSeries.getJSONObject(latestDate).getDouble("4. close");
-
-                    // Update "Current Price" in stock data array
-                    stock[3] = String.format("%.2f", currentPrice);
-
-                    // Update "Total Value" based on live price
-                    double shares = Double.parseDouble(stock[1]);
-                    stock[4] = String.format("%.2f", shares * currentPrice);
-                } else {
-                    System.out.println("Unable to fetch stock data for " + stockName);
-                }
-            } catch (Exception e) {
-                System.err.println("Error updating price for " + stockName + ": " + e.getMessage());
-            }
-        }
-
-        // Refresh table to reflect updates
-        portfolioTable.refresh();
     }
     
     private double fetchSpecificPrice(String stockName) {
