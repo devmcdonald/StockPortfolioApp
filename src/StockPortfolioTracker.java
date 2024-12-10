@@ -11,11 +11,11 @@ import javafx.geometry.*;
 import org.json.JSONObject;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.*;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import javafx.application.Platform;
-import java.util.*;
 import javafx.scene.chart.CategoryAxis;
 
 public class StockPortfolioTracker extends Application {
@@ -24,253 +24,276 @@ public class StockPortfolioTracker extends Application {
     private TableView<String[]> portfolioTable;
     private DatabaseManager dbManager;
     private ScheduledExecutorService scheduler;
-    
+
     @Override
     public void start(Stage primaryStage) {
         primaryStage.setTitle("Stock Market Portfolio Tracker");
-
         dbManager = new DatabaseManager();
 
-        // Portfolio Table
-        portfolioTable = new TableView<>();
-        TableColumn<String[], String> stockNameCol = new TableColumn<>("Stock");
-        stockNameCol.setCellValueFactory(data -> new javafx.beans.property.SimpleStringProperty(data.getValue()[0]));
-
-        TableColumn<String[], String> sharesCol = new TableColumn<>("Shares");
-        sharesCol.setCellValueFactory(data -> new javafx.beans.property.SimpleStringProperty(data.getValue()[1]));
-
-        TableColumn<String[], String> priceCol = new TableColumn<>("Buy Price");
-        priceCol.setCellValueFactory(data -> new javafx.beans.property.SimpleStringProperty(data.getValue()[2]));
-        
-        TableColumn<String[], String> curPriceCol = new TableColumn<>("Current Price");
-        curPriceCol.setCellValueFactory(data -> new javafx.beans.property.SimpleStringProperty(data.getValue()[3]));
-
-     // Corrected: Total Value Calculation (using totValCol)
-        TableColumn<String[], String> totValCol = new TableColumn<>("Total Value");
-        totValCol.setCellValueFactory(data -> {
-            double shares = Double.parseDouble(data.getValue()[1]);
-            double price = Double.parseDouble(data.getValue()[3]);
-            return new javafx.beans.property.SimpleStringProperty(String.format("%.2f", shares * price));
-        });
-
-        portfolioTable.getColumns().addAll(stockNameCol, sharesCol, priceCol, curPriceCol, totValCol);
-        portfolioTable.setPrefWidth(600);
-        portfolioTable.getSelectionModel().selectedItemProperty().addListener((observable, oldValue, newValue) -> {
-            if (newValue != null) {
-                String selectedStockName = newValue[0]; // Stock name is in the first column
-                updateStockTrendChartWithLiveData(selectedStockName);
-            }
-            else {
-                updateStockTrendChartWithPortfolioValue();
-            }
-        });
-
-        // Stock Trend Chart
-        CategoryAxis xAxis = new CategoryAxis();
-        xAxis.setLabel("Days");
-        NumberAxis yAxis = new NumberAxis();
-        yAxis.setLabel("Price");
-        stockTrendChart = new LineChart<>(xAxis, yAxis);
-        stockTrendChart.setTitle("Stock Performance");
+        // Initialize UI components
+        portfolioTable = setupPortfolioTable();
+        stockTrendChart = setupStockTrendChart();
+        VBox inputPane = setupStockInputPane();
 
         Button showPortfolioButton = new Button("Show Overall Portfolio");
-        showPortfolioButton.setOnAction(event -> updateStockTrendChartWithPortfolioValue());
-        
+        showPortfolioButton.setOnAction(event -> updateChartData("Portfolio", null));
+
         // Layouts
-        VBox leftPane = new VBox(10, new Label("Your Portfolio"), portfolioTable);
+        VBox leftPane = new VBox(10, new Label("Your Portfolio"), portfolioTable, inputPane);
         leftPane.setPadding(new Insets(10));
-        leftPane.setPrefWidth(400);
 
         VBox rightPane = new VBox(10, new Label("Stock Trends"), stockTrendChart, showPortfolioButton);
         rightPane.setPadding(new Insets(10));
-        rightPane.setPrefWidth(400);
-        VBox.setMargin(showPortfolioButton, new Insets(10, 0, 0, 0)); // Add some space from the chart
         rightPane.setAlignment(Pos.CENTER);
 
         HBox mainLayout = new HBox(10, leftPane, rightPane);
         mainLayout.setPadding(new Insets(10));
-        
 
-        // Add stock input fields and button
-        TextField stockNameInput = new TextField();
-        stockNameInput.setPromptText("Stock Symbol");
-        TextField sharesInput = new TextField();
-        sharesInput.setPromptText("Shares");
-        TextField priceInput = new TextField();
-        priceInput.setPromptText("Buy Price");
-
-        Button addStockButton = new Button("Add Stock");
-        addStockButton.setOnAction(e -> {
-            String stockName = stockNameInput.getText().toUpperCase();
-            String sharesText = sharesInput.getText();
-            String priceText = priceInput.getText();
-            if (!stockName.isEmpty() && !sharesText.isEmpty() && !priceText.isEmpty()) {
-                try {
-                	int shares = Integer.parseInt(sharesText);
-                    double price = Double.parseDouble(priceText);
-                    addStockToPortfolio(stockName,shares, price);
-                    
-                    stockNameInput.clear();
-                    sharesInput.clear();
-                    priceInput.clear();
-                } catch (NumberFormatException ex) {
-                    showError("Please enter valid numbers for shares and price.");
-                }
-            } else {
-                showError("All fields are required.");
-            }
-           
-        });
-        
-        VBox inputPane = new VBox(10, stockNameInput, sharesInput, priceInput, addStockButton);
-        inputPane.setPadding(new Insets(10));
-        inputPane.setAlignment(Pos.CENTER);
-        leftPane.getChildren().add(inputPane);
-
-        // Main Scene
+        // Scene setup
         Scene scene = new Scene(mainLayout, 800, 600);
         primaryStage.setScene(scene);
         primaryStage.show();
 
-        // Populate Portfolio Table from Database
+        // Load initial data and start updates
         loadPortfolioFromDatabase();
-        
-     // Start the scheduler to update stock prices
         startPriceUpdateScheduler();
     }
-    private void startPriceUpdateScheduler() {
-        // Create a thread pool with a fixed number of threads
-        int numThreads = portfolioTable.getItems().size(); // One thread per stock
-        scheduler = Executors.newScheduledThreadPool(numThreads);
+
+    private TableView<String[]> setupPortfolioTable() {
+        TableView<String[]> table = new TableView<>();
+        table.getColumns().addAll(
+            createTableColumn("Stock", 0),
+            createTableColumn("Shares", 1),
+            createTableColumn("Buy Price", 2),
+            createTableColumn("Current Price", 3),
+            createTotalValueColumn()
+        );
+        table.setPrefWidth(600);
+        table.getSelectionModel().selectedItemProperty().addListener((obs, oldValue, newValue) -> {
+            updateChartData("Stock", newValue != null ? newValue[0] : null);
+        });
+        return table;
+    }
+
+    private TableColumn<String[], String> createTableColumn(String title, int index) {
+        TableColumn<String[], String> column = new TableColumn<>(title);
+        column.setCellValueFactory(data -> 
+            new javafx.beans.property.SimpleStringProperty(data.getValue()[index])
+        );
+        return column;
+    }
+
+    private TableColumn<String[], String> createTotalValueColumn() {
+        TableColumn<String[], String> column = new TableColumn<>("Total Value");
+        column.setCellValueFactory(data -> {
+            double shares = Double.parseDouble(data.getValue()[1]);
+            double price = Double.parseDouble(data.getValue()[3]);
+            return new javafx.beans.property.SimpleStringProperty(String.format("%.2f", shares * price));
+        });
+        return column;
+    }
+
+    private LineChart<String, Number> setupStockTrendChart() {
+        CategoryAxis xAxis = new CategoryAxis();
+        xAxis.setLabel("Days");
+
+        NumberAxis yAxis = new NumberAxis();
+        yAxis.setLabel("Price");
+
+        // Dynamically adjust Y-axis based on the data
+        yAxis.setAutoRanging(false); // Disable auto-ranging to manually set bounds
+        yAxis.setLowerBound(0); // Set a lower bound (or a dynamic value if needed)
+        yAxis.setUpperBound(100); // Placeholder for the upper bound, which can be adjusted dynamically
+
+        LineChart<String, Number> chart = new LineChart<>(xAxis, yAxis);
+        return chart;
+    }
+
+
+    private VBox setupStockInputPane() {
+        TextField stockNameInput = new TextField();
+        stockNameInput.setPromptText("Stock Symbol");
+
+        TextField sharesInput = new TextField();
+        sharesInput.setPromptText("Shares");
+
+        TextField priceInput = new TextField();
+        priceInput.setPromptText("Buy Price");
+
+        Button addStockButton = new Button("Add Stock");
+        addStockButton.setOnAction(event -> addStock(
+            stockNameInput.getText().toUpperCase(),
+            sharesInput.getText(),
+            priceInput.getText(),
+            stockNameInput,
+            sharesInput,
+            priceInput
+        ));
+
+        VBox inputPane = new VBox(10, stockNameInput, sharesInput, priceInput, addStockButton);
+        inputPane.setPadding(new Insets(10));
+        inputPane.setAlignment(Pos.CENTER);
+        return inputPane;
+    }
+
+    private void addStock(String stockName, String sharesText, String priceText, 
+                          TextField... inputs) {
+        try {
+            int shares = Integer.parseInt(sharesText);
+            double price = Double.parseDouble(priceText);
+            portfolioTable.getItems().add(new String[]{
+                stockName, String.valueOf(shares), 
+                String.format("%.2f", price), "0.00", 
+                String.format("%.2f", shares * price)
+            });
+            dbManager.addStock(stockName, shares, price);
+            Arrays.stream(inputs).forEach(TextField::clear);
+        } catch (NumberFormatException e) {
+            showError("Please enter valid numbers for shares and price.");
+        }
+    }
+
+    private void updateChartData(String type, String stockName) {
+        stockTrendChart.getData().clear();
+        XYChart.Series<String, Number> series = new XYChart.Series<>();
+        series.setName(type.equals("Stock") ? stockName : "Portfolio Value");
+
+        try {
+            if (type.equals("Stock")) {
+                populateStockSeries(series, stockName);
+            } else {
+                populatePortfolioSeries(series);
+            }
+            stockTrendChart.getData().add(series);
+        } catch (Exception e) {
+            System.err.println("Error updating chart data: " + e.getMessage());
+        }
+    }
+
+    private void populateStockSeries(XYChart.Series<String, Number> series, String stockName) throws Exception {
+        JSONObject response = StockDataFetcher.fetchStockData(stockName);
+        if (response != null) {
+            JSONObject timeSeries = response.getJSONObject("Time Series (Daily)");
+            double minValue = Double.MAX_VALUE;
+            double maxValue = Double.MIN_VALUE;
+
+            for (String date : timeSeries.keySet()) {
+                double closePrice = timeSeries.getJSONObject(date).getDouble("4. close");
+                series.getData().add(new XYChart.Data<>(date, closePrice));
+
+                minValue = Math.min(minValue, closePrice);
+                maxValue = Math.max(maxValue, closePrice);
+            }
+
+            // Adjust Y-axis bounds based on the data
+            updateYAxisBounds(minValue, maxValue);
+        }
+    }
+
+    private void populatePortfolioSeries(XYChart.Series<String, Number> series) throws Exception {
+        Map<String, Double> portfolioData = new TreeMap<>();
+        double minValue = Double.MAX_VALUE;
+        double maxValue = Double.MIN_VALUE;
 
         for (String[] stock : portfolioTable.getItems()) {
             String stockName = stock[0];
-            scheduler.scheduleAtFixedRate(() -> {
-                // Update the stock price in a separate thread
-                updateCurrentPriceForStock(stockName);
-            }, 0, 1, TimeUnit.DAYS); // Update every day
-        }
-    }
-
-    private void updateCurrentPriceForStock(String stockName) {
-        try {
-            // Fetch live stock price using StockDataFetcher
+            double shares = Double.parseDouble(stock[1]);
             JSONObject response = StockDataFetcher.fetchStockData(stockName);
             if (response != null) {
                 JSONObject timeSeries = response.getJSONObject("Time Series (Daily)");
-                String latestDate = timeSeries.keys().next();
-                double currentPrice = timeSeries.getJSONObject(latestDate).getDouble("4. close");
+                for (String date : timeSeries.keySet()) {
+                    double closePrice = timeSeries.getJSONObject(date).getDouble("4. close");
+                    portfolioData.put(date, portfolioData.getOrDefault(date, 0.0) + shares * closePrice);
 
-                // Find the corresponding stock in the portfolioTable
-                Platform.runLater(() -> {
-                    for (String[] stock : portfolioTable.getItems()) {
-                        if (stock[0].equals(stockName)) {
-                            stock[3] = String.format("%.2f", currentPrice); // Update "Current Price"
-                            double shares = Double.parseDouble(stock[1]);
-                            stock[4] = String.format("%.2f", shares * currentPrice); // Update "Total Value"
-                            portfolioTable.refresh(); // Refresh the table to reflect updates
-                            break;
-                        }
-                    }
-                });
-            } else {
-                System.out.println("Unable to fetch stock data for " + stockName);
-            }
-        } catch (Exception e) {
-            System.err.println("Error updating price for " + stockName + ": " + e.getMessage());
-        }
-    }
-    
-    @Override
-    public void stop() throws Exception {
-        if (scheduler != null && !scheduler.isShutdown()) {
-            scheduler.shutdown();
-        }
-        super.stop();
-    }
-    
-    private void updateStockTrendChartWithPortfolioValue() {
-        stockTrendChart.getData().clear(); // Clear old data
-
-        XYChart.Series<String, Number> series = new XYChart.Series<>();
-        series.setName("Total Portfolio Value");
-
-        try {
-            Map<String, Double> portfolioData = new TreeMap<>(); // Natural ordering (ascending by date)
-
-            for (String[] stock : portfolioTable.getItems()) {
-                String stockName = stock[0];
-                double shares = Double.parseDouble(stock[1]);
-
-                JSONObject stockData = StockDataFetcher.fetchStockData(stockName);
-
-                if (stockData != null) {
-                    JSONObject timeSeries = stockData.getJSONObject("Time Series (Daily)");
-                    for (String date : timeSeries.keySet()) {
-                        double closePrice = timeSeries.getJSONObject(date).getDouble("4. close");
-                        portfolioData.put(date, portfolioData.getOrDefault(date, 0.0) + shares * closePrice);
-                    }
+                    minValue = Math.min(minValue, closePrice);
+                    maxValue = Math.max(maxValue, closePrice);
                 }
             }
-
-            for (String date : portfolioData.keySet()) {
-                series.getData().add(new XYChart.Data<>(date, portfolioData.get(date)));
-            }
-
-            stockTrendChart.getData().add(series);
-            adjustYAxisRangeAndTicks(series);
-        } catch (Exception e) {
-            System.err.println("Error calculating total portfolio value: " + e.getMessage());
         }
+
+        portfolioData.forEach((date, value) -> series.getData().add(new XYChart.Data<>(date, value)));
+
+        // Adjust Y-axis bounds based on the data
+        updateYAxisBounds(minValue, maxValue);
     }
     
-    private double fetchSpecificPrice(String stockName) {
-    	double curPrice = 0.0;
-            try {
-                // Fetch live stock price using StockDataFetcher
-                JSONObject response = StockDataFetcher.fetchStockData(stockName);
-                if (response != null) {
-                    JSONObject timeSeries = response.getJSONObject("Time Series (Daily)");
-                    String latestDate = timeSeries.keys().next();
-                    curPrice = timeSeries.getJSONObject(latestDate).getDouble("4. close");
+ // Method to update Y-axis bounds dynamically
+    private void updateYAxisBounds(double minValue, double maxValue) {
+        Platform.runLater(() -> {
+            NumberAxis yAxis = (NumberAxis) stockTrendChart.getYAxis();
 
-                } else {
-                    System.out.println("Unable to fetch stock data for " + stockName);
-                }
-            } catch (Exception e) {
-                System.err.println("Error updating price for " + stockName + ": " + e.getMessage());
-            }
-   
-        // Refresh table to reflect updates
-        portfolioTable.refresh();
-        
-        return curPrice;
-    }
+            double range = maxValue - minValue;
+            double padding = range * 0.1; // Add 10% padding
+            double lowerBound = Math.max(0, minValue - padding); // Ensure non-negative lower bound
+            double upperBound = maxValue + padding;
 
-    private void addStockToPortfolio(String stockName, int shares, double price) {
-        portfolioTable.getItems().add(new String[]{
-            stockName, 
-            String.valueOf(shares), 
-            String.format("%.2f", price), 
-            "0.00", // Placeholder for Current Price
-            String.format("%.2f", shares * price) // Placeholder for Total Value
+            // Dynamically calculate the tick unit
+            double tickUnit = calculateDynamicTickUnit(range);
+
+            // Update Y-Axis properties
+            yAxis.setAutoRanging(false);
+            yAxis.setLowerBound(lowerBound);
+            yAxis.setUpperBound(upperBound);
+            yAxis.setTickUnit(tickUnit);
+
+            // Limit minor tick marks for performance
+            yAxis.setMinorTickCount(4); // Reasonable number of minor ticks
         });
-        dbManager.addStock(stockName, shares, price);  // Persist to database
     }
+
+
+    private double calculateDynamicTickUnit(double range) {
+        // Define a maximum number of major ticks
+        int maxMajorTicks = 10;
+        return Math.ceil(range / maxMajorTicks);
+    }
+
+
+
+
+
 
     private void loadPortfolioFromDatabase() {
-        try {
-            ResultSet rs = dbManager.getPortfolio();
-            while (rs != null && rs.next()) {
+        try (ResultSet rs = dbManager.getPortfolio()) {
+            while (rs.next()) {
                 String stockName = rs.getString("stock_name");
                 int shares = rs.getInt("shares");
                 double price = rs.getDouble("price");
-                double curPrice = fetchSpecificPrice(stockName);
-                double totVal = curPrice * shares;
-                portfolioTable.getItems().add(new String[]{stockName, String.valueOf(shares), String.format("%.2f", price), String.format("%.2f", curPrice), String.format("%.2f", totVal)});
+                portfolioTable.getItems().add(new String[]{
+                    stockName, String.valueOf(shares), 
+                    String.format("%.2f", price), "0.00", "0.00"
+                });
             }
         } catch (SQLException e) {
             e.printStackTrace();
+        }
+    }
+
+    private void startPriceUpdateScheduler() {
+        scheduler = Executors.newScheduledThreadPool(portfolioTable.getItems().size());
+        portfolioTable.getItems().forEach(stock -> {
+            String stockName = stock[0];
+            scheduler.scheduleAtFixedRate(() -> updateStockPrice(stockName), 0, 1, TimeUnit.DAYS);
+        });
+    }
+
+    private void updateStockPrice(String stockName) {
+        try {
+            JSONObject response = StockDataFetcher.fetchStockData(stockName);
+            if (response != null) {
+                String latestDate = response.getJSONObject("Time Series (Daily)").keys().next();
+                double currentPrice = response.getJSONObject("Time Series (Daily)").getJSONObject(latestDate).getDouble("4. close");
+                Platform.runLater(() -> portfolioTable.getItems().stream()
+                    .filter(stock -> stock[0].equals(stockName))
+                    .forEach(stock -> {
+                        stock[3] = String.format("%.2f", currentPrice);
+                        stock[4] = String.format("%.2f", currentPrice * Double.parseDouble(stock[1]));
+                        portfolioTable.refresh();
+                    })
+                );
+            }
+        } catch (Exception e) {
+            System.err.println("Error updating stock price: " + e.getMessage());
         }
     }
 
@@ -279,71 +302,11 @@ public class StockPortfolioTracker extends Application {
         alert.showAndWait();
     }
 
-    /**
-     * Fetch live stock data and update the graph.
-     */
-    private void updateStockTrendChartWithLiveData(String stockName) {
-        stockTrendChart.getData().clear(); // Clear old data
-
-        try {
-            // Fetch stock data using the StockDataFetcher class
-            JSONObject response = StockDataFetcher.fetchStockData(stockName);
-
-            if (response != null) {
-                JSONObject timeSeries = response.getJSONObject("Time Series (Daily)");
-                XYChart.Series<String, Number> series = new XYChart.Series<>();
-                series.setName(stockName);
-
-                // Create a sorted list of dates (descending order to get the most recent first)
-                List<String> dates = new ArrayList<>(timeSeries.keySet());
-                Collections.sort(dates, Collections.reverseOrder()); // Sort by descending dates
-
-                // Extract the most recent 5 dates and reverse them for chronological order
-                List<String> recentDates = dates.subList(0, Math.min(dates.size(), 5));
-                Collections.reverse(recentDates); // Reverse to chronological order
-
-                // Add data to the series in chronological order
-                for (String date : recentDates) {
-                    double closePrice = timeSeries.getJSONObject(date).getDouble("4. close");
-                    series.getData().add(new XYChart.Data<>(date, closePrice));
-                }
-
-                stockTrendChart.getData().add(series);
-                adjustYAxisRangeAndTicks(series);
-            } else {
-                System.out.println("Error: Unable to fetch stock data.");
-            }
-        } catch (Exception e) {
-            System.err.println("Error updating stock trend chart: " + e.getMessage());
-        }
+    @Override
+    public void stop() throws Exception {
+        if (scheduler != null) scheduler.shutdown();
+        super.stop();
     }
-
-
-
-
-    private void adjustYAxisRangeAndTicks(XYChart.Series<String, Number> series) {
-        double minY = Double.MAX_VALUE;
-        double maxY = Double.MIN_VALUE;
-
-        for (XYChart.Data<String, Number> data : series.getData()) {
-            double value = data.getYValue().doubleValue();
-            if (value < minY) minY = value;
-            if (value > maxY) maxY = value;
-        }
-
-        double padding = (maxY - minY) * 0.1; // Add 10% padding
-        double lowerBound = minY - padding;
-        double upperBound = maxY + padding;
-
-        double tickUnit = Math.max((upperBound - lowerBound) / 10, 0.02); // Ensure minimum tick spacing of 0.02
-
-        NumberAxis yAxis = (NumberAxis) stockTrendChart.getYAxis();
-        yAxis.setAutoRanging(false); // Disable auto-range
-        yAxis.setLowerBound(lowerBound);
-        yAxis.setUpperBound(upperBound);
-        yAxis.setTickUnit(tickUnit);
-    }
-
 
     public static void main(String[] args) {
         launch(args);
