@@ -16,13 +16,8 @@ public class StockDataFetcher {
     private static final String BASE_URL = "https://www.alphavantage.co/query";
     private static int currentApiKeyIndex = 0;
 
-    /**
-     * Fetch stock data from the Alpha Vantage API.
-     * Automatically switches to the next API key if the current one fails.
-     * 
-     * @param stockName The name of the stock to fetch data for (e.g., AAPL).
-     * @return A JSONObject containing the stock data, or null if all keys are exhausted.
-     */
+
+    //Fetch stock data from the Alpha Vantage API. Automatically switches to the next API key if the current one fails
     public static JSONObject fetchStockData(String stockName) {
         int attempts = 0;
 
@@ -38,13 +33,13 @@ public class StockDataFetcher {
             }
 
             try {
-                // Create the API endpoint URL
+                
                 String endpoint = String.format("%s?function=TIME_SERIES_DAILY&symbol=%s&apikey=%s", BASE_URL, stockName, apiKey);
                 URL url = new URL(endpoint);
                 HttpURLConnection connection = (HttpURLConnection) url.openConnection();
                 connection.setRequestMethod("GET");
 
-                // Get the response code
+                // get response code and proceed accordingly
                 int responseCode = connection.getResponseCode();
                 if (responseCode == 200) {
                     try (BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
@@ -55,7 +50,6 @@ public class StockDataFetcher {
                         }
 
                         String responseString = response.toString();
-                        System.out.println("Response: " + responseString);  // Debugging line to see the full response
 
                         JSONObject jsonResponse = new JSONObject(responseString);
 
@@ -70,7 +64,7 @@ public class StockDataFetcher {
                         // Check for other error messages
                         if (jsonResponse.has("Error Message")) {
                             System.err.println("Error for API key " + (currentApiKeyIndex + 1) + ": " + jsonResponse.getString("Error Message"));
-                            return null; // Handle invalid stock symbol or other issues gracefully
+                            return null; 
                         }
 
                         // Check for valid "Time Series (Daily)" data
@@ -99,9 +93,8 @@ public class StockDataFetcher {
 
 
 
-    /**
-     * Switch to the next API key in the list.
-     */
+
+    //Switch to the next API key in the list.
     private static void switchToNextApiKey() {
         currentApiKeyIndex = (currentApiKeyIndex + 1) % API_KEYS.length;
         System.out.println("Switched to API key " + (currentApiKeyIndex + 1));

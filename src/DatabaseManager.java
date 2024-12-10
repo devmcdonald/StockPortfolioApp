@@ -27,6 +27,7 @@ public class DatabaseManager {
         }
     }
 
+    // add new stock
     public void addStock(String stockName, int shares, double price) {
         String insertQuery = "INSERT INTO portfolio (stock_name, shares, price) VALUES (?, ?, ?)";
         try (Connection connection = DriverManager.getConnection(DATABASE_URL);
@@ -40,6 +41,7 @@ public class DatabaseManager {
         }
     }
 
+    // fetch portfolio from database
     public ResultSet getPortfolio() {
         String selectQuery = "SELECT stock_name, shares, price FROM portfolio";
         try {
@@ -52,13 +54,4 @@ public class DatabaseManager {
         }
     }
 
-    public void clearPortfolio() {
-        String deleteQuery = "DELETE FROM portfolio";
-        try (Connection connection = DriverManager.getConnection(DATABASE_URL);
-             Statement statement = connection.createStatement()) {
-            statement.executeUpdate(deleteQuery);
-        } catch (SQLException e) {
-            System.err.println("Error clearing portfolio: " + e.getMessage());
-        }
-    }
 }

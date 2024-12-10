@@ -25,6 +25,8 @@ public class StockPortfolioTracker extends Application {
     private DatabaseManager dbManager;
     private ScheduledExecutorService scheduler;
 
+    
+    // starts UI, and load data in
     @Override
     public void start(Stage primaryStage) {
         primaryStage.setTitle("Stock Market Portfolio Tracker");
@@ -59,6 +61,7 @@ public class StockPortfolioTracker extends Application {
         startPriceUpdateScheduler();
     }
 
+    //design structure of table
     private TableView<String[]> setupPortfolioTable() {
         TableView<String[]> table = new TableView<>();
         table.getColumns().addAll(
@@ -75,6 +78,7 @@ public class StockPortfolioTracker extends Application {
         return table;
     }
 
+    //design table column
     private TableColumn<String[], String> createTableColumn(String title, int index) {
         TableColumn<String[], String> column = new TableColumn<>(title);
         column.setCellValueFactory(data -> 
@@ -83,6 +87,7 @@ public class StockPortfolioTracker extends Application {
         return column;
     }
 
+    //calculate value for final column (total value of specific stock)
     private TableColumn<String[], String> createTotalValueColumn() {
         TableColumn<String[], String> column = new TableColumn<>("Total Value");
         column.setCellValueFactory(data -> {
@@ -92,7 +97,8 @@ public class StockPortfolioTracker extends Application {
         });
         return column;
     }
-
+    
+    //setup graph
     private LineChart<String, Number> setupStockTrendChart() {
         CategoryAxis xAxis = new CategoryAxis();
         xAxis.setLabel("Days");
@@ -101,15 +107,15 @@ public class StockPortfolioTracker extends Application {
         yAxis.setLabel("Price");
 
         // Dynamically adjust Y-axis based on the data
-        yAxis.setAutoRanging(false); // Disable auto-ranging to manually set bounds
-        yAxis.setLowerBound(0); // Set a lower bound (or a dynamic value if needed)
-        yAxis.setUpperBound(100); // Placeholder for the upper bound, which can be adjusted dynamically
+        yAxis.setAutoRanging(false); 
+        yAxis.setLowerBound(0); 
+        yAxis.setUpperBound(100); 
 
         LineChart<String, Number> chart = new LineChart<>(xAxis, yAxis);
         return chart;
     }
 
-
+    //Input pane where user can add a new stock to their portfolio
     private VBox setupStockInputPane() {
         TextField stockNameInput = new TextField();
         stockNameInput.setPromptText("Stock Symbol");
@@ -136,6 +142,7 @@ public class StockPortfolioTracker extends Application {
         return inputPane;
     }
 
+    //add stock using input pane
     private void addStock(String stockName, String sharesText, String priceText, 
                           TextField... inputs) {
         try {
@@ -153,6 +160,7 @@ public class StockPortfolioTracker extends Application {
         }
     }
 
+    //method to update graph with selected stock
     private void updateChartData(String type, String stockName) {
         stockTrendChart.getData().clear();
         XYChart.Series<String, Number> series = new XYChart.Series<>();
@@ -170,6 +178,7 @@ public class StockPortfolioTracker extends Application {
         }
     }
 
+    //populate chart and dynamically update axis depending on stock data
     private void populateStockSeries(XYChart.Series<String, Number> series, String stockName) throws Exception {
         JSONObject response = StockDataFetcher.fetchStockData(stockName);
         if (response != null) {
@@ -190,6 +199,7 @@ public class StockPortfolioTracker extends Application {
         }
     }
 
+    //populate chart with ENTIRE portfolio (i.e. all owned stocks all together)
     private void populatePortfolioSeries(XYChart.Series<String, Number> series) throws Exception {
         Map<String, Double> portfolioData = new TreeMap<>();
         double minValue = Double.MAX_VALUE;
@@ -217,42 +227,36 @@ public class StockPortfolioTracker extends Application {
         updateYAxisBounds(minValue, maxValue);
     }
     
- // Method to update Y-axis bounds dynamically
+    //update Y-axis bounds dynamically
     private void updateYAxisBounds(double minValue, double maxValue) {
         Platform.runLater(() -> {
             NumberAxis yAxis = (NumberAxis) stockTrendChart.getYAxis();
 
             double range = maxValue - minValue;
-            double padding = range * 0.1; // Add 10% padding
-            double lowerBound = Math.max(0, minValue - padding); // Ensure non-negative lower bound
+            double padding = range * 0.1; 
+            double lowerBound = Math.max(0, minValue - padding); 
             double upperBound = maxValue + padding;
 
-            // Dynamically calculate the tick unit
             double tickUnit = calculateDynamicTickUnit(range);
 
-            // Update Y-Axis properties
             yAxis.setAutoRanging(false);
             yAxis.setLowerBound(lowerBound);
             yAxis.setUpperBound(upperBound);
             yAxis.setTickUnit(tickUnit);
 
-            // Limit minor tick marks for performance
-            yAxis.setMinorTickCount(4); // Reasonable number of minor ticks
+            yAxis.setMinorTickCount(4); 
         });
     }
 
-
+    //change tick units on y axis if necessary
     private double calculateDynamicTickUnit(double range) {
-        // Define a maximum number of major ticks
         int maxMajorTicks = 10;
         return Math.ceil(range / maxMajorTicks);
     }
 
 
 
-
-
-
+    // populate data with existing database
     private void loadPortfolioFromDatabase() {
         try (ResultSet rs = dbManager.getPortfolio()) {
             while (rs.next()) {
@@ -269,6 +273,7 @@ public class StockPortfolioTracker extends Application {
         }
     }
 
+    // create new thread for each stock, start scheduled updates (just once a day to save on API requests - only 25 requests permitted per day)
     private void startPriceUpdateScheduler() {
         scheduler = Executors.newScheduledThreadPool(portfolioTable.getItems().size());
         portfolioTable.getItems().forEach(stock -> {
@@ -277,6 +282,7 @@ public class StockPortfolioTracker extends Application {
         });
     }
 
+    //update specific stock price
     private void updateStockPrice(String stockName) {
         try {
             JSONObject response = StockDataFetcher.fetchStockData(stockName);
