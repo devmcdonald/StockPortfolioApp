@@ -143,22 +143,51 @@ public class StockPortfolioTracker extends Application {
     }
 
     //add stock using input pane
-    private void addStock(String stockName, String sharesText, String priceText, 
-                          TextField... inputs) {
+    private void addStock(String stockName, String sharesText, String priceText, TextField... inputs) {
         try {
             int shares = Integer.parseInt(sharesText);
-            double price = Double.parseDouble(priceText);
-            portfolioTable.getItems().add(new String[]{
-                stockName, String.valueOf(shares), 
-                String.format("%.2f", price), "0.00", 
-                String.format("%.2f", shares * price)
-            });
-            dbManager.addStock(stockName, shares, price);
+            double buyPrice = Double.parseDouble(priceText);
+
+            // Use 0.0 as a numeric placeholder for the current price
+            String[] newStockRow = new String[]{
+                stockName, String.valueOf(shares),
+                String.format("%.2f", buyPrice), String.format("%.2f", 0.0),
+                String.format("%.2f", shares * buyPrice)
+            };
+            portfolioTable.getItems().add(newStockRow);
+
+            // Save to the database
+            dbManager.addStock(stockName, shares, buyPrice);
+
+            // Fetch the current price and update the row
+            new Thread(() -> {
+                try {
+                    JSONObject response = StockDataFetcher.fetchStockData(stockName);
+                    if (response != null) {
+                        JSONObject timeSeries = response.getJSONObject("Time Series (Daily)");
+                        String latestDate = timeSeries.keys().next();
+                        double currentPrice = timeSeries.getJSONObject(latestDate).getDouble("4. close");
+
+                        // Update the table row on the JavaFX Application Thread
+                        Platform.runLater(() -> {
+                            newStockRow[3] = String.format("%.2f", currentPrice);
+                            newStockRow[4] = String.format("%.2f", shares * currentPrice);
+                            portfolioTable.refresh();
+                        });
+                    }
+                } catch (Exception e) {
+                    System.err.println("Error fetching current price: " + e.getMessage());
+                }
+            }).start();
+
+            // Clear the input fields
             Arrays.stream(inputs).forEach(TextField::clear);
         } catch (NumberFormatException e) {
             showError("Please enter valid numbers for shares and price.");
         }
     }
+
+
 
     //method to update graph with selected stock
     private void updateChartData(String type, String stockName) {
@@ -202,8 +231,7 @@ public class StockPortfolioTracker extends Application {
     //populate chart with ENTIRE portfolio (i.e. all owned stocks all together)
     private void populatePortfolioSeries(XYChart.Series<String, Number> series) throws Exception {
         Map<String, Double> portfolioData = new TreeMap<>();
-        double minValue = Double.MAX_VALUE;
-        double maxValue = Double.MIN_VALUE;
+        List<Double> portfolioValues = new ArrayList<>();
 
         for (String[] stock : portfolioTable.getItems()) {
             String stockName = stock[0];
@@ -214,18 +242,22 @@ public class StockPortfolioTracker extends Application {
                 for (String date : timeSeries.keySet()) {
                     double closePrice = timeSeries.getJSONObject(date).getDouble("4. close");
                     portfolioData.put(date, portfolioData.getOrDefault(date, 0.0) + shares * closePrice);
-
-                    minValue = Math.min(minValue, closePrice);
-                    maxValue = Math.max(maxValue, closePrice);
                 }
             }
         }
 
-        portfolioData.forEach((date, value) -> series.getData().add(new XYChart.Data<>(date, value)));
+        portfolioData.forEach((date, value) -> {
+            series.getData().add(new XYChart.Data<>(date, value));
+            portfolioValues.add(value); // Collect values for bounds calculation
+        });
 
-        // Adjust Y-axis bounds based on the data
-        updateYAxisBounds(minValue, maxValue);
+        if (!portfolioValues.isEmpty()) {
+            double minValue = Collections.min(portfolioValues);
+            double maxValue = Collections.max(portfolioValues);
+            updateYAxisBounds(minValue, maxValue);
+        }
     }
+
     
     //update Y-axis bounds dynamically
     private void updateYAxisBounds(double minValue, double maxValue) {
