@@ -148,7 +148,6 @@ public class StockPortfolioTracker extends Application {
             int shares = Integer.parseInt(sharesText);
             double buyPrice = Double.parseDouble(priceText);
 
-            // Use 0.0 as a numeric placeholder for the current price
             String[] newStockRow = new String[]{
                 stockName, String.valueOf(shares),
                 String.format("%.2f", buyPrice), String.format("%.2f", 0.0),
@@ -156,10 +155,9 @@ public class StockPortfolioTracker extends Application {
             };
             portfolioTable.getItems().add(newStockRow);
 
-            // Save to the database
             dbManager.addStock(stockName, shares, buyPrice);
 
-            // Fetch the current price and update the row
+            // Fetch current price and update table
             new Thread(() -> {
                 try {
                     JSONObject response = StockDataFetcher.fetchStockData(stockName);
@@ -168,7 +166,6 @@ public class StockPortfolioTracker extends Application {
                         String latestDate = timeSeries.keys().next();
                         double currentPrice = timeSeries.getJSONObject(latestDate).getDouble("4. close");
 
-                        // Update the table row on the JavaFX Application Thread
                         Platform.runLater(() -> {
                             newStockRow[3] = String.format("%.2f", currentPrice);
                             newStockRow[4] = String.format("%.2f", shares * currentPrice);
@@ -180,7 +177,6 @@ public class StockPortfolioTracker extends Application {
                 }
             }).start();
 
-            // Clear the input fields
             Arrays.stream(inputs).forEach(TextField::clear);
         } catch (NumberFormatException e) {
             showError("Please enter valid numbers for shares and price.");
